@@ -1,6 +1,7 @@
 import pandas as pd
+import polars as pl
 
-def prepare_validation(history_for_validation):
+def prepare_validation_first_two_sessions(history_for_validation):
     # оставить юзеров, у которых был последним отклик
     # во второй сессии был отклик
 
@@ -11,10 +12,10 @@ def prepare_validation(history_for_validation):
     val_entries = history_for_validation[history_for_validation.user_id.isin(validation_users)]
 
     # оставить только первые две сессии в валидационном периоде
-    sessioin_ranks = history_for_validation.sort_values('session_id').groupby('user_id').session_dt.rank().rename('val_session_rank')
-    validation_sessions = sessioin_ranks[sessioin_ranks<= 2]
+    sessioin_ranks = val_entries.sort_values('session_id').groupby('user_id').session_dt.rank().rename('val_session_rank')
+    sessioin_ranks = sessioin_ranks[sessioin_ranks<= 2]
 
-    val_entries = val_entries.merge(validation_sessions, left_index=True, right_index=True)
+    val_entries = val_entries.merge(sessioin_ranks, left_index=True, right_index=True)
 
 
     # каждую первую сессию просто откладываем, это будет Х
@@ -45,3 +46,28 @@ def prepare_validation(history_for_validation):
        (validation_dataset.vacancy_id.apply(len)< 30) ]
     return validation_dataset
     
+
+train_input = 'data/hh_recsys_train_hh.pq'
+
+train_for_validation_output = 'data/validation/train.pq'
+validation_output = 'data/validation/test.pq'
+
+train = pl.read_parquet(path).to_pandas()
+
+train_start_date = '2023-11-01'
+train_val_split_date = '2023-11-08'
+train_end_date = '2023-11-14'
+test_start_date = '2023-11-15'
+test_end_date = '2023-11-21'
+
+
+train['session_dt'] = train['action_dt'].apply(lambda x: x[0])
+
+train_for_val = train[train['session_dt'] < train_val_split_date]
+val = train[train['session_dt'] >= train_val_split_date]
+
+validation_dataset = prepare_validation_first_two_sessions(val)
+
+pl.from_pandas(train_for_val).write_parquet(train_for_validation_output)
+pl.from_pandas(validation_dataset).write_parquet(validation_output)
+
