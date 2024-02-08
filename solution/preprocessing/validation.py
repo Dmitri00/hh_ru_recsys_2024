@@ -61,6 +61,15 @@ def get_test(for_validation=True):
     base_path = get_dataset_storage_path(for_validation)
     test_path = os.path.join(base_path, 'test.pq')
     return read_parquet_to_pandas(test_path)
+
+def store_solution(df, experiment_name, for_validation=True):
+    
+    base_path = 'data/submissions/'
+    split_path = 'val' if for_validation else 'test'
+    submission_path = os.path.join(base_path, split_path, f'{experiment_name}.pq')
+    
+    pl.from_pandas(df).write_parquet(submission_path)
+    
     
     
 if __name__ == '__main__':
