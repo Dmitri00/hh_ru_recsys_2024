@@ -46,6 +46,9 @@ class ValidationPreparator:
 def read_parquet_to_pandas(path):
     return pl.read_parquet(path).to_pandas()
 
+def read_parquet(path):
+    return pl.read_parquet(path)
+
 def get_dataset_storage_path(for_validation):
     base_data_path = 'data'
     if for_validation:
@@ -57,12 +60,12 @@ def get_dataset_storage_path(for_validation):
 def get_train(for_validation=True):
     base_path = get_dataset_storage_path(for_validation)
     train_path = os.path.join(base_path, 'train.pq')
-    return read_parquet_to_pandas(train_path)
+    return read_parquet(train_path)
 
 def get_test(for_validation=True):
     base_path = get_dataset_storage_path(for_validation)
     test_path = os.path.join(base_path, 'test.pq')
-    return read_parquet_to_pandas(test_path)
+    return read_parquet(test_path)
 
 def store_solution(df, experiment_name, for_validation=True):
     
@@ -70,7 +73,7 @@ def store_solution(df, experiment_name, for_validation=True):
     split_path = 'val' if for_validation else 'test'
     submission_path = os.path.join(base_path, split_path, f'{experiment_name}.pq')
     
-    pl.from_pandas(df).write_parquet(submission_path)
+    df.write_parquet(submission_path)
     
     
     

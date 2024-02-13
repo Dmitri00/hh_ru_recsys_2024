@@ -41,7 +41,13 @@ class MRRValidation(ValidationEval):
 if __name__ == '__main__':
     submission_path = sys.argv[1]
     topk = int(sys.argv[2])
-    test_df = get_test(for_validation=True)
+    try:
+        row_limit = int(sys.argv[3])
+    except:
+        row_limit = -1
+    test_df = get_test(for_validation=True).to_pandas()
+    if row_limit != -1:
+        test_df = test_df[:row_limit]
    # topk=100
     validator_at_100 = MRRValidation(test_df, topk)
     
