@@ -50,6 +50,8 @@ def get_dataset_storage_path(for_validation):
     base_data_path = 'data'
     if for_validation:
         path = os.path.join(base_data_path, 'validation')
+    else:
+        path = os.path.join(base_data_path, 'submit')
     return path
 
 def get_train(for_validation=True):
