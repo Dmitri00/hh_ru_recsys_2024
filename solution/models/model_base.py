@@ -18,15 +18,16 @@ class TrainPredictModelApp(ABC):
         return logging.getLogger()
 
     def main(self):
+        ## Этот модуль поломан, тк модель продолжить просмотр теперь принимает explode историю
+        # и возвращает незапакованные, плоские рекомы
         args = self.get_args()
         logger = self.get_logger()
-        #dataset_fabric = PreprocessedDataset()
-        #train = dataset_fabric.get_train(for_validation=args['for_validation'])
-        #test = dataset_fabric.get_test(for_validation=args['for_validation'])
+        train = get_train(for_validation=args['for_validation'])
+        test = get_test(for_validation=args['for_validation'])
         
         model = self.get_model(args)
         
-        #model.fit(train)
+        model.fit(train)
         
         #queries =  HistoryIter().get_plain_history(test)
         #pipeline = Pipeline()

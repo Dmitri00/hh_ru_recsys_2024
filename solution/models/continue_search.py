@@ -3,15 +3,14 @@ import polars as pl
 import logging
 from solution.models.model_base import TrainPredictModelApp
 import sys
-from solution.models.recommender_base import TrainableCandidateGenerator
+from solution.models.recommender_base import TrainableStage
 
-class AllXToSubmit(TrainableCandidateGenerator):
-    def __init__(self, name, action_weights=None):
+class AllXToSubmit:
+    def __init__(self, action_weights=None):
         if action_weights is not None:
             self._action_weights = action_weights
         else:
             self._action_weights = {1:-5, 2:1, 3:3}
-        self._name = name
     def _preproc_sessions(self, user_session):
         #user_items = user_session.explode('vacancy_id', 'action_type', 'action_dt')
         user_items = user_session
@@ -71,7 +70,7 @@ class AllXToSubmit(TrainableCandidateGenerator):
         return user_row_recoms.group_by('user_id', maintain_order=True) \
             .agg(pl.col('vacancy_id').alias('predictions'))
     
-    def _get_candidates(self, df):
+    def predict(self, df):
         # препроц сессий:
         # explode сессии каждого пользователя
         # ремап действий в веса

@@ -20,51 +20,74 @@ class PreProcessedDataset(DatasetFabric):
         return is_validation
 
 class HistoryFilterClicked(HistoryFilter):
-    def __init__(self, user_history):
+    def fit(self, user_history: UserDataset):
         self._user_history = user_history.filter(pl.col('action_type') == 1)
 
+class AllXToSubmitStage(CandidateGenerator, TrainableStage):
+    def __init__(self):
+        self._model = AllXToSubmit()
+    def fit(self, df):
+        return self._model.fit(df)
+    def _get_candidates(self, df):
+        return self._model.predict(df)
+    
+class RecomPipelineApp:
+    def __init__(self):
+        joint_candidates = JoinCandidatesStage([AllXToSubmitStage().set_name('all_x_to_y')], join_by='user_id vacancy_id'.split())
 
-logging.getLogger().setLevel(logging.INFO)
+        shown_filter = HistoryFilterClicked()
+
+        reranker = ConstantRanker('constant_ranker')
+
+        recom_pack = RecomPack('packer')
+
+        
+
+        self.pipeline = ListPipeline(
+        ) 
+        self.pipeline.add_stage(joint_candidates)
+        self.pipeline.add_stage(shown_filter)
+        self.pipeline.add_stage(reranker)
+
+        self.pipeline.add_stage(recom_pack)
 
 
 
-dataset_fabric = PreProcessedDataset()
-
-history_iter = HistoryIter()
-
-user_history = dataset_fabric.get_test(Splits('val'))
-
-user_history_train = dataset_fabric.get_train(Splits('val'))
+    def fit(self, x):
+        return self.pipeline.fit(x)
+    def predict(self, x):
+        return self.pipeline.predict(x)
 
 
 
-joint_candidates = JoinCandidatesStage([AllXToSubmit('all_x_to_y')], join_by='user_id vacancy_id'.split())
+def main():
+    logging.getLogger().setLevel(logging.INFO)
+    dataset_fabric = PreProcessedDataset()
 
-shown_filter = HistoryFilterClicked(history_iter.get_plain_history(user_history_train))
+    history_iter = HistoryIter()
 
-reranker = ConstantRanker('constant_ranker')
+    user_history = dataset_fabric.get_test(Splits('val'))
 
-recom_pack = RecomPack('packer')
+    user_history_train = dataset_fabric.get_train(Splits('val'))
 
-submitter = SubmitPrepare(user_history)
+    
+    # self.pipeline.add_stage(submitter)
 
-pipeline = ListPipeline(
-) 
-pipeline.add_stage(joint_candidates)
-pipeline.add_stage(shown_filter)
-pipeline.add_stage(reranker)
+    pipeline = RecomPipelineApp()
 
-pipeline.add_stage(recom_pack)
+    pipeline.fit(history_iter.get_plain_history(user_history_train))
 
-pipeline.add_stage(submitter)
+    logging.info(f'Test dataset {user_history}')
+    plain_history_test = history_iter.get_plain_history(user_history)
+    logging.info(f'Test dataset plain {plain_history_test}')
 
-pipeline.fit(history_iter.get_plain_history(user_history_train))
+    predict = pipeline.predict(plain_history_test)
 
-logging.info(f'Test dataset {user_history}')
-plain_history_test = history_iter.get_plain_history(user_history)
-logging.info(f'Test dataset plain {plain_history_test}')
+    submitter = SubmitPrepare(user_history)
 
-submission = pipeline.predict(plain_history_test)
+    submission = submitter.predict(predict)
 
-store_solution(submission, 'recom_pipeline_continue_search', True)
+    store_solution(submission, 'recom_pipeline_continue_search', True)
 
+if __name__ == '__main__':
+    main()
