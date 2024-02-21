@@ -3,14 +3,19 @@ import polars as pl
 import logging
 from solution.models.model_base import TrainPredictModelApp
 import sys
-class TextXToSubmit:
-    def __init__(self, action_weights=None):
+from solution.models.recommender_base import TrainableCandidateGenerator
+
+class AllXToSubmit(TrainableCandidateGenerator):
+    def __init__(self, name, action_weights=None):
         if action_weights is not None:
             self._action_weights = action_weights
         else:
             self._action_weights = {1:-5, 2:1, 3:3}
+        self._name = name
     def _preproc_sessions(self, user_session):
-        user_items = user_session.explode('vacancy_id', 'action_type', 'action_dt')
+        #user_items = user_session.explode('vacancy_id', 'action_type', 'action_dt')
+        user_items = user_session
+        #logging.info(f'{user_session}')
         user_items = user_items.with_columns(
             action_weight=user_items['action_type'].map_elements(self._remap_actions)
         )
@@ -59,22 +64,25 @@ class TextXToSubmit:
         # тут нужно разработать скор например (-log(position)+action_weight)
         # map_column
         user_recoms = user_recoms.with_columns(postion_rank=pl.col('action_dt').rank(method='dense', descending=True).over('user_id'))
-        user_recoms = user_recoms.with_columns(rank=-pl.col('postion_rank').log() + pl.col('action_weight'))
-        return user_recoms.sort('rank', descending=True)
+        user_recoms = user_recoms.with_columns(rank=pl.col('postion_rank').log())
+        return user_recoms.sort('rank')
     
     def _pack_recoms(self, user_row_recoms):
         return user_row_recoms.group_by('user_id', maintain_order=True) \
             .agg(pl.col('vacancy_id').alias('predictions'))
     
-    def predict(self, df):
+    def _get_candidates(self, df):
         # препроц сессий:
         # explode сессии каждого пользователя
         # ремап действий в веса
         logging.info(f'Кол-во юзер сессий для предикта {len(df)}')
+        predict_users = df['user_id'].unique()
         user_items = self._preproc_sessions(df)
                              
         # объединить тестовую сессию с отранжированными действиями в трейне
-        all_user_interactions = pl.concat([self._user_items_aggregated, user_items])
+        user_items_aggregated = self._user_items_aggregated.filter(
+                pl.col('user_id').is_in(predict_users))
+        all_user_interactions = pl.concat([user_items_aggregated, user_items])
         # повторить шаги аггрегации действий:
         # groupby действий пользователя с макс семплом действия по айтему
         # убрать айтемы, у которых был отклик по максемплу
@@ -85,16 +93,16 @@ class TextXToSubmit:
         sorted_user_recoms = self._sort_recoms(aggregated_user_items)
         # упаковать построчные рекомы в списки
         
-        predictions = self._pack_recoms(sorted_user_recoms)
+        #predictions = self._pack_recoms(sorted_user_recoms)
         
-        predictions = df.select('user_id session_id'.split()).join(predictions, on='user_id')
-        logging.info(f'Кол-во юзеров в предикте {len(predictions)}')
+        #predictions = df.select('user_id session_id'.split()).join(predictions, on='user_id')
+        #logging.info(f'Кол-во юзеров в предикте {len(predictions)}')
 
         
-        return predictions
+        return sorted_user_recoms.rename({'rank':'score'}).select('user_id', 'vacancy_id', 'score')
 
 
-class TextXToSubmitApp(TrainPredictModelApp):
+class AllXToSubmitApp(TrainPredictModelApp):
     
     def get_args(self):
         try:
@@ -105,12 +113,12 @@ class TextXToSubmitApp(TrainPredictModelApp):
         return {'for_validation': for_validation,
                'experiment_name':'all_x_to_y_sort_by_rank'}
     def get_model(self, args):
-        return TextXToSubmit()
+        return AllXToSubmit()
         
         
 if __name__ == '__main__':
     
-    TextXToSubmitApp().main()
+    AllXToSubmitApp().main()
     
 
     
