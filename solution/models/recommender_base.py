@@ -17,6 +17,11 @@ user_history_schema = {
     'action_dt': pl.String
 }
 
+# это базовая сущность, которая до сих пор зависит от сторонних фреймворков и
+# эта сущность в процессе своего очищения:
+# 1) всем остальным пайплайнам базового рекомендера нужно переписать табличные операторы с polars/pandas на данные методы
+# 2) создать конкретную реализацию датафрейма на поларс
+# 3) портировать конкретные стейджи пайплана на поларс на данный датафрейм
 class UserDataset:
     def outer_join(self, other, on):
         pass
@@ -38,6 +43,8 @@ class UserDataset:
         pass
     def group_by_and_agg(self, group_by, agg_func:str):
         pass
+    def __length__(self):
+        pass
 
 
 class PipelineStage(ABC):
@@ -58,6 +65,7 @@ class HistoryFilter(TrainableStage):
         logging.info(f'Applying history filter')
         before_filter = len(x)
         this_user_history = self._user_history
+        # портировать на абстрактный UserDataset.anti_join 
         filtered = x.join(this_user_history, on='user_id vacancy_id'.split(), how='anti')
         after_filter = len(filtered)
         logging.info(f'Before shown filter:{before_filter} rows, after filter:{after_filter} rows')
@@ -77,7 +85,9 @@ class CandidateGenerator(PipelineStage):
     def predict(self, user_history):
         # эта функция для юзеров без рекомендаций должна возвращать строку с user_id, item_id=null
         candidates = self._get_candidates(user_history)
+        # портировать на абстрактный UserDataset.group_by_and_agg(max) 
         candidates = candidates.group_by('vacancy_id user_id'.split(), maintain_order=True).max()
+        # портировать на абстрактный UserDataset.rename 
         candidates = candidates.rename({'score': f'{self.get_model_name()}_score'})
         logging.info(f'Candidates from {self.get_model_name()}:{candidates}')
         return candidates
@@ -118,8 +128,10 @@ class Reranker(PipelineStage):
     def score(self, candidates):
         pass
     def predict(self, candidates):
+        # портировать на абстрактный UserDataset.rename 
         scored_candidates = self.score(candidates).rename({'score': self.get_column_name()})
         
+        # портировать на абстрактный UserDataset.sort 
         ranked_candidates = scored_candidates.sort(self.get_column_name(), descending=True)
         logging.info(ranked_candidates)
         return ranked_candidates
@@ -131,6 +143,7 @@ class RecomPack(PipelineStage):
         self._name = name
     def predict(self, user_recoms):
         logging.info(f'Packing recoms {user_recoms}')
+        # портировать на абстрактный UserDataset.agg_lists_with_order 
         recoms = user_recoms.group_by('user_id', maintain_order=True).agg(pl.col('vacancy_id'))
         return recoms
 
@@ -144,9 +157,11 @@ class SubmitPrepare(PipelineStage):
         # когда предыдущие стейджи перестанут забывать юзеров без рекомов и
         # будут обозначать их значением null в vacancy_id, то
         # о прокидывании теста в данный класс можно будет забыть и класс очистится
+        # портировать на абстрактный UserDataset.select и UserDataset.outer_join
         submit = self._submit_dataframe.join(recoms.select('user_id', pl.col('vacancy_id').alias('predictions')), on='user_id', how='outer_coalesce')
         #logging.info(submit)
 
+        # портировать на абстрактный UserDataset.fill_null
         submit = submit.with_columns(self.fill_null_list(pl.col('predictions')))        
 
         return submit
@@ -198,6 +213,7 @@ class JoinCandidatesStage(ListPipeline):
             #logging.info(results)
             this_stage_output = stage.predict(x)
             if results is not None:
+                # портировать на абстрактный UserDataset.outer_join
                 results = results.join(this_stage_output, on=self._join_by, how='outer_coalesce')
             else:
                 results = this_stage_output
