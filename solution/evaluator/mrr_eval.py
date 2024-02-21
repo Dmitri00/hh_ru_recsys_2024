@@ -11,8 +11,7 @@ class ValidationEval:
         true_vs_pred.fillna('none', inplace=True)
         metric = self._metric(true_vs_pred['target'], true_vs_pred['predictions'])
         return metric
-
-class MRRValidation(ValidationEval):
+    
     def _metric(self, true, predicts):
         Q = len(true)
         metric = 0
@@ -21,6 +20,8 @@ class MRRValidation(ValidationEval):
                 continue
             metric += self.per_query_metric(true_item, predicted_items)
         return metric / Q
+
+class MRRValidation(ValidationEval):
     def per_query_metric(self, true_item, predict_items):
         rank = 1
         found = False
@@ -36,6 +37,21 @@ class MRRValidation(ValidationEval):
         else:
             return 0
 
+class RecallValidation(ValidationEval):
+    def per_query_metric(self, true_item, predict_items):
+        found = False
+        rank = 1
+        for predict in predict_items:
+            if predict == true_item:
+                found = True
+                break
+            if rank == self._topk:
+                break
+            rank += 1
+        if found:
+            return 1
+        else:
+            return 0
 
         
 if __name__ == '__main__':
@@ -49,9 +65,16 @@ if __name__ == '__main__':
     if row_limit != -1:
         test_df = test_df[:row_limit]
    # topk=100
-    validator_at_100 = MRRValidation(test_df, topk)
+    
     
     submission = read_parquet_to_pandas(submission_path)
+    
+    validator_at_100 = MRRValidation(test_df, topk)
     score = validator_at_100.evaluate(submission)
     print(f'MRR@{topk} score : {score:.5f}')
+    
+    
+    validator_at_100 = RecallValidation(test_df, topk)
+    score = validator_at_100.evaluate(submission)
+    print(f'Recall@{topk} score : {score:.5f}')
     
