@@ -1,11 +1,14 @@
 from re import sub
-from solution.preprocessing.validation import get_test, get_train, store_solution
+from solution.preprocessing.validation import get_test, get_train, store_solution, get_vacancies
 from solution.models.continue_search import AllXToSubmit
-
 from solution.models.recommender_base import *
 
 from solution.models.common_stages import ConstantRanker, CatBoostLikeRanker, HistoryIter
-from solution.models.common_stages import I2IListModel, HistoryFilterClicked
+from solution.models.common_stages import I2IListModel
+
+from sklearn.preprocessing import LabelEncoder
+
+from solution.models.knn import get_item_geo_i2i_pca_fast_faiss_knn
 
 
 
@@ -21,19 +24,11 @@ class PreProcessedDataset(DatasetFabric):
             is_validation = False
         return is_validation
 
-class HistoryFilterClickedOnlyOtcliks(HistoryFilterClicked):
-    def __init__(self, user_history: UserDataset):
-        super().__init__(user_history.filter(pl.col('action_type') == 1))
 
-class AllXToSubmitStage(CandidateGenerator):
-    def __init__(self):
-        self._model = AllXToSubmit()
-        dataset_fabric = PreProcessedDataset()
-        dataset_fabric.get_train(Splits('val'))
-    def fit(self, df):
-        return self._model.fit(df)
-    def _get_candidates(self, df):
-        return self._model.predict(df)
+class HistoryFilterClicked(HistoryFilter):
+    def fit(self, user_history: UserDataset):
+        self._user_history = user_history.filter(pl.col('action_type') == 1)
+
 
 class PolarsI2ICandidateGenerator(I2IListModel):
     def __init__(self, i2i_dataframe):
@@ -41,13 +36,9 @@ class PolarsI2ICandidateGenerator(I2IListModel):
 
     
 class RecomPipelineApp:
-    def __init__(self, split:Splits):
-
-        
-
-        model = AllXToSubmitStage().set_name('all_x_to_y')
-        model.fit()
-        joint_candidates = JoinCandidatesStage([], join_by='user_id vacancy_id'.split())
+    def __init__(self):
+        item_knn_stage = AllXToSubmitStage().set_name('all_x_to_y')
+        joint_candidates = JoinCandidatesStage([item_knn_stage], join_by='user_id vacancy_id'.split())
 
         shown_filter = HistoryFilterClicked()
 
@@ -90,7 +81,11 @@ def main():
 
     pipeline = RecomPipelineApp()
 
-    #pipeline.fit(history_iter.get_plain_history(user_history_train))
+    plain_history_train = history_iter.get_plain_history(user_history_train)
+
+    
+    
+    pipeline.fit(plain_history_train)
 
     logging.info(f'Test dataset {user_history}')
     plain_history_test = history_iter.get_plain_history(user_history)

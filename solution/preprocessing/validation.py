@@ -1,8 +1,9 @@
 import pandas as pd
 import polars as pl
-import solution.preprocessing
 import os
+import logging
 from solution.preprocessing.preprocessing import base_preprocessing
+from solution.models.recommender_base import PipelineInfo, DatasetFabric, Splits
 
 class ValidationPreparator:
     def transform(self, history_for_validation):
@@ -51,66 +52,144 @@ def read_parquet(path):
 
 def get_dataset_storage_path(for_validation):
     base_data_path = 'data'
-    if for_validation:
+    if for_validation == Splits.VALIDATION:
         path = os.path.join(base_data_path, 'validation')
-    else:
+    elif for_validation == Splits.TEST:
         path = os.path.join(base_data_path, 'submit')
+    else:
+        path = os.path.join(base_data_path, 'micro')
     return path
 
-def get_train(for_validation=True):
+def get_submission_storage_path(for_validation):
+    if for_validation == Splits.VALIDATION:
+        return 'val'
+    elif for_validation == Splits.TEST:
+        return 'test'
+    else:
+        return 'micro'
+
+def get_train(for_validation=Splits.VALIDATION):
     base_path = get_dataset_storage_path(for_validation)
     train_path = os.path.join(base_path, 'train.pq')
     return read_parquet(train_path)
 
-def get_test(for_validation=True):
+def get_test(for_validation=Splits.VALIDATION):
     base_path = get_dataset_storage_path(for_validation)
     test_path = os.path.join(base_path, 'test.pq')
     return read_parquet(test_path)
 
-def store_solution(df, experiment_name, for_validation=True):
+def get_vacancies(for_validation=Splits.VALIDATION):
+    #base_path = get_dataset_storage_path(for_validation)
+    base_path = './'
+    vacancies_file_name = 'data/hh_recsys_vacancies_light.pq'
+    return read_parquet(os.path.join(base_path, vacancies_file_name))
+def store_solution(df, experiment_name, for_validation=Splits.VALIDATION):
     
     base_path = 'data/submissions/'
-    split_path = 'val' if for_validation else 'test'
+    split_path = get_submission_storage_path(for_validation)
+    logging.info(f'{split_path}')
     submission_path = os.path.join(base_path, split_path, f'{experiment_name}.pq')
     
     df.write_parquet(submission_path)
+
+def store_dataframe(df, model_name, for_validation=Splits.VALIDATION):
+    base_path = 'data/dataframes/'
+    split_path = get_submission_storage_path(for_validation)
+    submission_path = os.path.join(base_path, split_path, f'{model_name}.pq')
     
+    df.write_parquet(submission_path)
+
+def load_dataframe(model_name, for_validation=Splits.VALIDATION):
+    base_path = 'data/dataframes/'
+    split_path = get_submission_storage_path(for_validation)
+    submission_path = os.path.join(base_path, split_path, f'{model_name}.pq')
     
+    return pl.read_parquet(submission_path)
     
+class UserLogDataset(DatasetFabric):
+    def get_train(self):
+        return get_train(PipelineInfo.SPLIT)
+    def get_test(self):
+        return get_test(PipelineInfo.SPLIT)
+
+class VacanciesDataset:
+    def get(self):
+        return get_vacancies(PipelineInfo.SPLIT)
+
+def load_data(file_path):
+    logging.info(f'Loading data from {file_path}')
+    return pl.read_parquet(file_path).to_pandas()
+
+def write_data(df, file_path):
+    logging.info(f'Writing data to {file_path}')
+    pl.from_pandas(df).write_parquet(file_path)  
+
+def filter_data_by_date(df, start_date, end_date):
+    return df[(df['session_dt'] >= start_date) & (df['session_dt'] < end_date)]
+
+def transform_data(df):
+    logging.info('Applying base preprocessing')
+    return base_preprocessing.transform(df)
+
+def prepare_dataset(train, train_start_date, train_end_date, 
+                    val_start_date, val_end_date, output_train, output_val):
+    train_for_val = filter_data_by_date(train, train_start_date, train_end_date)
+    logging.info(f'Train for validation size: {train_for_val.shape}')
+    val = filter_data_by_date(train, val_start_date, val_end_date)
+
+    val_prepare = ValidationPreparator()
+    validation_dataset = val_prepare.transform(val)
+    logging.info(f'Validation dataset size: {validation_dataset.shape}')
+
+    write_data(train_for_val, output_train)
+    write_data(validation_dataset, output_val)
+
 if __name__ == '__main__':
+    logging.getLogger().setLevel(logging.INFO)
+    
     train_input = 'data/hh_recsys_train_hh.pq'
     test_input = 'data/hh_recsys_test_hh.pq'
 
     train_for_validation_output = 'data/validation/train.pq'
     validation_output = 'data/validation/test.pq'
 
+    micro_train_for_validation_output = 'data/micro/train.pq'
+    micro_validation_output = 'data/micro/test.pq'
 
-    train = pl.read_parquet(train_input).to_pandas()
-    test = pl.read_parquet(test_input).to_pandas()
+    train_for_submit_output = 'data/submit/train.pq'
+    test_for_submit_output = 'data/submit/test.pq'
 
     train_start_date = '2023-11-01'
+    train_end_date = '2023-11-15'
+    
     train_val_split_date = '2023-11-08'
-    train_end_date = '2023-11-14'
+    val_start_date = train_val_split_date
+    val_end_date = train_end_date
+    
+    micro_train_val_split_date = '2023-11-03'
+    micro_val_start_date = '2023-11-03'
+    micro_val_end_date = '2023-11-05'
+
     test_start_date = '2023-11-15'
     test_end_date = '2023-11-21'
 
+    train = load_data(train_input)
+    test = load_data(test_input)
 
-    train = base_preprocessing.transform(train)
-    test = base_preprocessing.transform(test)
-    #train['session_dt'] = train['action_dt'].apply(lambda x: x[0])
+    train = transform_data(train)
+    test = transform_data(test)
+    
+    logging.info('Validation dataset')
+    #prepare_dataset(train, train_start_date, train_end_date, 
+    #                val_start_date, val_end_date,
+    #                train_for_validation_output, validation_output)
 
-    train_for_val = train[train['session_dt'] < train_val_split_date]
-    val = train[train['session_dt'] >= train_val_split_date]
+    logging.info('Micro validation dataset')
+    prepare_dataset(train, train_start_date, micro_train_val_split_date,
+                    micro_val_start_date, micro_val_end_date,
+                    micro_train_for_validation_output, micro_validation_output)
 
-    val_prepare = ValidationPreparator()
+    logging.info('Submit dataset')
+    #write_data(train, train_for_submit_output)
+    #write_data(test, test_for_submit_output)
 
-    validation_dataset = val_prepare.transform(val)
-
-    pl.from_pandas(train_for_val).write_parquet(train_for_validation_output)
-    pl.from_pandas(validation_dataset).write_parquet(validation_output)
-
-    train_for_submit_output = 'data/submit/train.pq'
-    test_output = 'data/submit/test.pq'
-
-    pl.from_pandas(train).write_parquet(train_for_submit_output)
-    pl.from_pandas(test).write_parquet(test_output)

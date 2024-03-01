@@ -42,6 +42,10 @@ class UserDataset:
     def fill_null_column(self, column, fill_value):
         pass
     def group_by_and_agg(self, group_by, agg_func:str):
+        # в идеале для макс. подробных аггрегатов каждому аггрегату
+        # нужно три параметра: колонка по которой аггрегировать, аггрегатная функция
+        # и название выходной колонки, чтобы делать разные аггрегаты над одной и той же
+        # колонкой
         pass
     def __length__(self):
         pass
@@ -55,12 +59,8 @@ class PipelineStage(ABC):
         self._name = name
         return self
 
-class TrainableStage(PipelineStage):
-    @abstractmethod
-    def fit(self, train_df):
-        pass
 
-class HistoryFilter(TrainableStage):
+class HistoryFilter(PipelineStage):
     def predict(self, x):
         logging.info(f'Applying history filter')
         before_filter = len(x)
@@ -70,9 +70,6 @@ class HistoryFilter(TrainableStage):
         after_filter = len(filtered)
         logging.info(f'Before shown filter:{before_filter} rows, after filter:{after_filter} rows')
         return filtered
-    @abstractmethod
-    def fit(self, x: UserDataset):
-        pass
 
 
 
@@ -93,26 +90,35 @@ class CandidateGenerator(PipelineStage):
         return candidates
 
 
-class HistoryFilterFromDataframe(HistoryFilter, TrainableStage):
+class HistoryFilterFromDataframe(HistoryFilter):
     def __init__(self, user_history):
         self._user_history = user_history
 
 class PipelineStageException(Exception):
     pass
 
-class DatasetFabric(ABC):
-    @abstractmethod
-    def get_train(self, split: str):
-        pass
-    @abstractmethod
-    def get_test(self, split: str):
-        pass
-
 class Splits(Enum):
     VALIDATION = 'val'
     TEST = 'test'
+    MICRO = 'micro'
 
 assert Splits.VALIDATION == Splits('val')
+
+class PipelineInfo:
+    SPLIT: Splits = Splits('val')
+    @classmethod
+    def set_split(cls, split: Splits):
+        cls.SPLIT = split
+
+class DatasetFabric(ABC):
+    @abstractmethod
+    def get_train(self):
+        pass
+    @abstractmethod
+    def get_test(self):
+        pass
+
+
 
 class UserHistoryIter(ABC):
     @abstractmethod
@@ -182,17 +188,6 @@ class Pipeline(ABC):
                 logging.exception(e)
                 raise PipelineStageException() from e
         return x
-    
-    def fit(self, x: UserDataset):
-        for stage in self._stages:
-            try:
-                if isinstance(stage, TrainableStage) or isinstance(stage, Pipeline):
-                    logging.info(f'Training stage {stage}')
-                    stage.fit(x)
-            except PipelineStageException as e:
-                logging.exception(e)
-                raise PipelineStageException() from e
-        return self
 
 
 

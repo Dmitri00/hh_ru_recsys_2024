@@ -3,6 +3,8 @@ from solution.models.continue_search import AllXToSubmit
 from solution.models.recommender_base import *
 from solution.models.common_stages import ConstantRanker, CatBoostLikeRanker, HistoryIter, ConstantCandidateGenerator
 
+from solution.models.common_stages import I2IListModel
+
 
 class SimpleDatasetFabric:
     user_history = pl.DataFrame(
@@ -17,9 +19,11 @@ class SimpleDatasetFabric:
     def get_test(self, split):
         return self.user_history
 
-class HistoryFilterClicked(HistoryFilter):
-    def __init__(self, user_history):
-        self._user_history = user_history.filter(pl.col('action_type') == 1)
+
+
+class PolarsI2ICandidateGenerator(I2IListModel):
+    def __init__(self, i2i_dataframe):
+        self._i2i = i2i_dataframe
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -38,11 +42,16 @@ plain_history_test = history_iter.get_plain_history(user_history)
 
 
 some_candidates = pl.DataFrame({'vacancy_id':[1,2,3,4], 'score':[1,2,3,4]})
+some_i2i = pl.DataFrame({
+    'anchor_vacancy_id':[1,2,3,4],
+    'recom_vacancy_id':[2,4,5,2],
+    'score':[4,2,3,1]
+    })
 
-candgen_als = ConstantCandidateGenerator(some_candidates, 'als')
-candgen_text = ConstantCandidateGenerator(some_candidates, 'knn_text')
+candgen_als = ConstantCandidateGenerator(some_candidates).set_name('als')
+candgen_text = PolarsI2ICandidateGenerator(some_i2i).set_name('knn_text')
 
-joint_candidates = JoinCandidatesStage([candgen_als, candgen_text, AllXToSubmit('all_x_to_y')], join_by='user_id vacancy_id'.split())
+joint_candidates = JoinCandidatesStage([candgen_als, candgen_text], join_by='user_id vacancy_id'.split())
 
 shown_filter = HistoryFilterClicked(history_iter.get_plain_history(user_history_train))
 
@@ -62,6 +71,6 @@ pipeline.add_stage(recom_pack)
 
 pipeline.add_stage(submitter)
 
-pipeline.fit(history_iter.get_plain_history(user_history_train))
+#pipeline.fit(history_iter.get_plain_history(user_history_train))
 
 pipeline.predict(plain_history_test)

@@ -1,8 +1,8 @@
 import polars as pl
 import numpy as np
 import pandas as pd
-from solution.models.recommender_base import Reranker, UserHistoryIter,CandidateGenerator
-
+from solution.models.recommender_base import Reranker, UserHistoryIter,CandidateGenerator, HistoryFilter
+import logging
 class RandomRanker(Reranker):
     def __init__(self, name):
         self._name = name
@@ -45,10 +45,41 @@ class HistoryIter(UserHistoryIter):
             yield user_id, self.get_plain_history(entry)
 
 class ConstantCandidateGenerator(CandidateGenerator):
-    def __init__(self, candidates, name):
-        self._model_name = name
+    def __init__(self, candidates):
         self._candidates = candidates
-    def get_model_name(self):
-        return self._model_name
     def _get_candidates(self, user_history):
         return user_history.select('user_id').join(self._candidates, how='cross')
+
+
+# Техдолг: этот класс можно переписать через обстрактный датафрейм из recommender_base
+# а в специализации для polars оставить только конструктор
+class I2IListModel(CandidateGenerator):
+    def _prepare_anchor_column(self, user_history):
+        return user_history.rename({'vacancy_id':'anchor_vacancy_id'})
+    def _get_candidates(self, user_history):
+        prepared_user_history = self._prepare_anchor_column(user_history)
+        logging.info(prepared_user_history, self._i2i)
+        candidates = prepared_user_history \
+            .join(self._i2i, on='anchor_vacancy_id') \
+            .explode('recom_vacancy_id', 'score') \
+            .select(
+                'user_id',
+                pl.col('recom_vacancy_id').alias('vacancy_id'),
+                'score'
+            )
+        aggregated_candidates = candidates.group_by('user_id', 'vacancy_id') \
+            .agg(pl.max('score'))
+        return aggregated_candidates
+
+class CandGenWrapper(CandidateGenerator):
+    def __init__(self, predictor):
+        self._predictor = predictor
+    def _get_candidates(self, df):
+        return self._predictor.predict(df)
+
+class HistoryFilterClicked(HistoryFilter):
+    def __init__(self, user_history):
+        self.fit(user_history)
+    def fit(self, user_history):
+        self._user_history = user_history.filter(pl.col('action_type') == 1)
+        return self

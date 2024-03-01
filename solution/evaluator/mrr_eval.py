@@ -2,6 +2,8 @@ import pandas as pd
 from solution.preprocessing.validation import get_test, read_parquet_to_pandas
 import sys
 import os
+import logging
+from solution.models.recommender_base import Splits
 class ValidationEval:
     def __init__(self, ground_truth, topk=100):
         self._ground_truth = ground_truth
@@ -52,16 +54,31 @@ class RecallValidation(ValidationEval):
             return 1
         else:
             return 0
-
+def parse_split(split):
+    if split == 'validation':
+        is_validation = Splits('val')
+    elif split == 'test':
+        is_validation = Splits('test')
+    else:
+        is_validation = Splits('micro')
+    logging.info(f'{is_validation}')
+    return is_validation
         
 if __name__ == '__main__':
+    logging.getLogger().setLevel(logging.INFO)
     submission_path = sys.argv[1]
     topk = int(sys.argv[2])
     try:
         row_limit = int(sys.argv[3])
     except:
         row_limit = -1
-    test_df = get_test(for_validation=True).to_pandas()
+    try:
+        split = sys.argv[4]
+        for_validation = parse_split(split)
+    except:
+        for_validation = Splits('micro')
+    logging.info(f'{for_validation}')
+    test_df = get_test(for_validation).to_pandas()
     if row_limit != -1:
         test_df = test_df[:row_limit]
    # topk=100

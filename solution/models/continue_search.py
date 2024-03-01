@@ -1,9 +1,12 @@
 
 import polars as pl
 import logging
-from solution.models.model_base import TrainPredictModelApp
+from solution.models.model_base import TrainPredictModelApp, Splits
 import sys
-from solution.models.recommender_base import TrainableStage
+from solution.models.recommender_base import CandidateGenerator, PipelineStage
+from solution.models.common_stages import CandGenWrapper
+import sys
+from solution.preprocessing.validation import UserLogDataset
 
 class AllXToSubmit:
     def __init__(self, action_weights=None):
@@ -102,17 +105,23 @@ class AllXToSubmit:
 
 
 class AllXToSubmitApp(TrainPredictModelApp):
+    def __init__(self):
+        self._model = AllXToSubmit()
+
     
     def get_args(self):
         try:
             split = sys.argv[1]
-            for_validation = split == 'validation'
+            for_validation = AllXToSubmitApp.parse_split(split)
         except:
-            for_validation = True
+            for_validation = Splits('val')
         return {'for_validation': for_validation,
                'experiment_name':'all_x_to_y_sort_by_rank'}
     def get_model(self, args):
-        return AllXToSubmit()
+        train = UserLogDataset().get_train() \
+            .explode('action_type', 'vacancy_id', 'action_dt')
+        
+        return CandGenWrapper(self._model.fit(train)).set_name('continue_search')
         
         
 if __name__ == '__main__':
